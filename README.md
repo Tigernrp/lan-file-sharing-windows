@@ -56,6 +56,19 @@ Release builds are designed to be built from a public GitHub revision, reviewed,
 
 Free code signing provided by SignPath.io, certificate by SignPath Foundation.
 
+### Verify a downloaded release
+
+Run these commands in Windows PowerShell, replacing the file name with the downloaded release:
+
+```powershell
+$installer = '.\LanFileSharing-Setup-v3.82.exe'
+Get-FileHash -Algorithm SHA256 -LiteralPath $installer
+Get-AuthenticodeSignature -LiteralPath $installer | Format-List Status,StatusMessage,SignerCertificate,TimeStamperCertificate
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\Test-ReleaseArtifact.ps1 -InstallerPath $installer -Version 3.82 -SignerPattern '^CN=SignPath Foundation' -RequireTimestamp -OutputPath .\release-verification.json
+```
+
+Compare the SHA-256 value with the checksum attached to the GitHub Release. A valid signed release must report `Status: Valid`, the expected SignPath Foundation publisher, a timestamp certificate, matching version metadata, and valid signatures for every project-owned executable and PowerShell file in the payload.
+
 ## Project documents
 
 - [MIT License](LICENSE)

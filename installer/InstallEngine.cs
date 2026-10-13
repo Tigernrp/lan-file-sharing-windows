@@ -490,31 +490,75 @@ internal static class InstallEngine
         return output.ToString();
     }
 
+    private sealed class SignatureAuditResult
+    {
+        internal string Status;
+        internal string Signer;
+        internal bool TimestampPresent;
+        internal bool TimestampValid;
+    }
+
+    private static Dictionary<string, SignatureAuditResult> ReadSignatureAudit(string stage)
+    {
+        string quoted = stage.Replace("'", "''");
+        string command = "$root='" + quoted + "'; Get-ChildItem -LiteralPath $root -File -Recurse | Where-Object { $_.Extension -in @('.exe','.ps1','.psm1') } | ForEach-Object { " +
+            "$s=Get-AuthenticodeSignature -LiteralPath $_.FullName; $r=$_.FullName.Substring($root.Length+1).Replace('\\','/'); " +
+            "$rb=[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($r)); $sb=if($s.SignerCertificate){[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes([string]$s.SignerCertificate.Subject))}else{''}; " +
+            "$tp=($null -ne $s.TimeStamperCertificate); $tv=([string]$s.Status -eq 'Valid' -and $tp); $rb+'|'+[string]$s.Status+'|'+$sb+'|'+$tp+'|'+$tv }";
+        string encoded = Convert.ToBase64String(Encoding.Unicode.GetBytes(command));
+        var start = new ProcessStartInfo(Path.Combine(Environment.SystemDirectory, @"WindowsPowerShell\v1.0\powershell.exe"),
+            "-NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand " + encoded);
+        start.UseShellExecute = false;
+        start.CreateNoWindow = true;
+        start.RedirectStandardOutput = true;
+        start.RedirectStandardError = true;
+        start.WindowStyle = ProcessWindowStyle.Hidden;
+        var results = new Dictionary<string, SignatureAuditResult>(StringComparer.OrdinalIgnoreCase);
+        using (Process process = Process.Start(start)) {
+            string stdout = process.StandardOutput.ReadToEnd();
+            string stderr = process.StandardError.ReadToEnd();
+            if (!process.WaitForExit(30000)) { process.Kill(); throw new TimeoutException("Payload signature audit timed out."); }
+            if (process.ExitCode != 0) throw new InvalidDataException("Payload signature audit failed.");
+            foreach (string raw in stdout.Split(new string[] { "\r\n", "\n" }, StringSplitOptions.RemoveEmptyEntries)) {
+                string[] parts = raw.Split('|');
+                if (parts.Length != 5) throw new InvalidDataException("Payload signature audit returned malformed data.");
+                string relative = Encoding.UTF8.GetString(Convert.FromBase64String(parts[0]));
+                string signer = parts[2].Length == 0 ? "" : Encoding.UTF8.GetString(Convert.FromBase64String(parts[2]));
+                results.Add(relative, new SignatureAuditResult {
+                    Status=parts[1], Signer=signer,
+                    TimestampPresent=string.Equals(parts[3], "True", StringComparison.OrdinalIgnoreCase),
+                    TimestampValid=string.Equals(parts[4], "True", StringComparison.OrdinalIgnoreCase)
+                });
+            }
+        }
+        return results;
+    }
+
     private static void WriteAuditReport(string stage, string reportPath)
     {
         string root = Path.GetFullPath(stage).TrimEnd('\\') + "\\";
         string[] files = Directory.GetFiles(stage, "*", SearchOption.AllDirectories);
         Array.Sort(files, StringComparer.OrdinalIgnoreCase);
+        Dictionary<string, SignatureAuditResult> signatures = ReadSignatureAudit(stage);
         var json = new StringBuilder();
-        json.Append("{\n  \"version\": \"").Append(JsonEscape(Version)).Append("\",\n  \"files\": [\n");
+        json.Append("{\n  \"version\": \"").Append(JsonEscape(Version)).Append("\",\n  \"payloadInventoryVerified\": true,\n  \"files\": [\n");
         for (int index = 0; index < files.Length; index++) {
             string file = files[index];
             string relative = Path.GetFullPath(file).Substring(root.Length).Replace('\\', '/');
             string hash;
             using (var input = File.OpenRead(file))
             using (var sha = SHA256.Create()) hash = BitConverter.ToString(sha.ComputeHash(input)).Replace("-", "").ToLowerInvariant();
-            bool signed = false;
-            string signer = "";
-            if (file.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) || file.EndsWith(".ps1", StringComparison.OrdinalIgnoreCase) || file.EndsWith(".psm1", StringComparison.OrdinalIgnoreCase)) {
-                try {
-                    var certificate = new X509Certificate2(X509Certificate.CreateFromSignedFile(file));
-                    signed = true;
-                    signer = certificate.Subject;
-                    certificate.Dispose();
-                } catch (CryptographicException) { }
-            }
+            SignatureAuditResult signature;
+            bool signable = signatures.TryGetValue(relative, out signature);
+            bool signed = signable && string.Equals(signature.Status, "Valid", StringComparison.Ordinal);
+            string signer = signable ? signature.Signer : "";
+            string signatureStatus = signable ? signature.Status : "NotApplicable";
+            bool timestampPresent = signable && signature.TimestampPresent;
+            bool timestampValid = signable && signature.TimestampValid;
             json.Append("    {\"path\":\"").Append(JsonEscape(relative)).Append("\",\"sha256\":\"").Append(hash)
-                .Append("\",\"signed\":").Append(signed ? "true" : "false").Append(",\"signer\":\"").Append(JsonEscape(signer)).Append("\"}");
+                .Append("\",\"signed\":").Append(signed ? "true" : "false").Append(",\"signatureStatus\":\"").Append(JsonEscape(signatureStatus))
+                .Append("\",\"signer\":\"").Append(JsonEscape(signer)).Append("\",\"timestampPresent\":").Append(timestampPresent ? "true" : "false")
+                .Append(",\"timestampValid\":").Append(timestampValid ? "true" : "false").Append("}");
             if (index + 1 < files.Length) json.Append(',');
             json.Append('\n');
         }

@@ -27,7 +27,10 @@
     "tests/Manual-Lan-Checklist.md",
     "tests/Run-Tests.ps1",
     "tools/Export-PublicSource.ps1",
+    "tools/Get-ReleaseInventory.ps1",
+    "tools/New-ReleaseSbom.ps1",
     "tools/PublicSource.psm1",
+    "tools/Test-ReleaseArtifact.ps1",
     "tools/Test-PublicRepository.ps1",
     "tools/public-source-files.json"
   ],
