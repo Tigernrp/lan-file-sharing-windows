@@ -239,9 +239,24 @@ function New-LanFinalPayload {
 }
 
 function Invoke-LanInstallerCheck {
-    param([string]$Installer, [string]$Argument, [string]$Report)
-    $process = Start-Process -FilePath $Installer -ArgumentList ($Argument + ' "' + $Report + '"') -Wait -PassThru -WindowStyle Hidden
-    if ($process.ExitCode -ne 0 -or -not [IO.File]::Exists($Report)) { throw ('Installer check failed: ' + $Argument) }
+    param(
+        [string]$Installer,
+        [string]$Argument,
+        [string]$Report,
+        [ValidateRange(1, 600)][int]$TimeoutSeconds = 120
+    )
+    $process = Start-Process -FilePath $Installer -ArgumentList ($Argument + ' "' + $Report + '"') -PassThru -WindowStyle Hidden
+    $null = $process.Handle
+    try {
+        if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
+            try { & taskkill.exe /PID $process.Id /T /F | Out-Null } catch { Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue }
+            throw ('Installer check timed out after {0}s: {1}' -f $TimeoutSeconds, $Argument)
+        }
+        $process.Refresh()
+        if ($process.ExitCode -ne 0 -or -not [IO.File]::Exists($Report)) { throw ('Installer check failed: ' + $Argument) }
+    } finally {
+        $process.Dispose()
+    }
 }
 
 function New-LanInstallerFromPayload {

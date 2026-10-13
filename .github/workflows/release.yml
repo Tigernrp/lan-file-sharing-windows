@@ -64,7 +64,7 @@ jobs:
           ./tests/Run-Tests.ps1 -TimeoutSeconds 180
 
       - name: Build unsigned payload for SignPath
-        shell: pwsh
+        shell: powershell
         run: ./installer/Build-Payload.ps1 -Version '${{ steps.version.outputs.value }}' -OutputDirectory ./artifacts/unsigned-payload
 
       - name: Upload unsigned payload privately
@@ -92,7 +92,7 @@ jobs:
           output-artifact-directory: artifacts/signed-payload
 
       - name: Verify signed payload and build unsigned installer
-        shell: pwsh
+        shell: powershell
         run: |
           $version = '${{ steps.version.outputs.value }}'
           $payload = Join-Path $PWD "artifacts/signed-payload/payload-signing-v$version.zip"
@@ -126,7 +126,7 @@ jobs:
           output-artifact-directory: artifacts/signed-installer
 
       - name: Run final signed release gate and prepare public files
-        shell: pwsh
+        shell: powershell
         run: |
           $version = '${{ steps.version.outputs.value }}'
           $installer = Join-Path $PWD "artifacts/signed-installer/LanFileSharing-Setup-v$version.exe"

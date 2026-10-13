@@ -18,6 +18,7 @@ Describe 'GitHub and SignPath workflow policy' {
         $ci | Should Match 'Check-Encoding\.ps1'
         $ci | Should Match 'Run-Tests\.ps1'
         $ci | Should Match 'Install-Module\s+Pester\s+-RequiredVersion\s+4\.10\.1'
+        $ci | Should Match '(?ms)- name:\s*Build and verify development installer\s*\r?\n\s*shell:\s*powershell\s*\r?\n'
         (Get-Content -LiteralPath (Join-Path $repoRoot 'tests\Run-Tests.ps1') -Raw) | Should Match 'Version\.Major\s+-eq\s+4'
         $ci | Should Not Match 'SIGNPATH_API_TOKEN|secrets\.'
         $ci | Should Not Match 'upload-artifact[^\r\n]*\.exe'
@@ -39,6 +40,24 @@ Describe 'GitHub and SignPath workflow policy' {
             $release | Should Match $name
         }
         $release | Should Match 'Required SignPath settings are present'
+        foreach ($step in @(
+            'Build unsigned payload for SignPath',
+            'Verify signed payload and build unsigned installer',
+            'Run final signed release gate and prepare public files'
+        )) {
+            $release | Should Match ('(?ms)- name:\s*' + [regex]::Escape($step) + '\s*\r?\n\s*shell:\s*powershell\s*\r?\n')
+        }
+    }
+
+    It 'bounds every installer self-check and terminates a timed-out process tree' {
+        $module = Get-Content -LiteralPath (Join-Path $repoRoot 'installer\ReleaseBuild.psm1') -Raw
+        $entry = Get-Content -LiteralPath (Join-Path $repoRoot 'installer\Build-Release.ps1') -Raw
+        foreach ($source in @($module, $entry)) {
+            $source | Should Match 'WaitForExit\s*\('
+            $source | Should Match 'TimeoutSeconds'
+            $source | Should Match 'taskkill\.exe\s+/PID'
+            $source | Should Not Match 'Start-Process[^\r\n]+-Wait'
+        }
     }
 
     It 'submits exactly two bounded signing requests and waits for both outputs' {

@@ -4,6 +4,7 @@ param(
     [Parameter(ParameterSetName = 'Verify')][string]$InstallerPath,
     [Parameter(ParameterSetName = 'Build')][switch]$DevelopmentUnsigned,
     [Parameter(ParameterSetName = 'Build')][string]$SignedPayloadPath,
+    [ValidateRange(1, 600)][int]$TimeoutSeconds = 120,
     [ValidatePattern('^[0-9]+\.[0-9]+$')][string]$Version = '3.81'
 )
 
@@ -22,9 +23,19 @@ if ($VerifyOnly) {
     [IO.Directory]::CreateDirectory($reportDirectory) | Out-Null
     $report = Join-Path $reportDirectory ('verify-' + [guid]::NewGuid().ToString('N') + '.txt')
     try {
-        $process = Start-Process -FilePath $installer -ArgumentList ('--verify "' + $report + '"') -Wait -PassThru -WindowStyle Hidden
-        if ($process.ExitCode -ne 0 -or -not [IO.File]::Exists($report) -or [IO.File]::ReadAllText($report) -notmatch '^OK files=\d+') {
-            throw 'Embedded release verification failed.'
+        $process = Start-Process -FilePath $installer -ArgumentList ('--verify "' + $report + '"') -PassThru -WindowStyle Hidden
+        $null = $process.Handle
+        try {
+            if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
+                try { & taskkill.exe /PID $process.Id /T /F | Out-Null } catch { Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue }
+                throw ('Embedded release verification timed out after {0}s.' -f $TimeoutSeconds)
+            }
+            $process.Refresh()
+            if ($process.ExitCode -ne 0 -or -not [IO.File]::Exists($report) -or [IO.File]::ReadAllText($report) -notmatch '^OK files=\d+') {
+                throw 'Embedded release verification failed.'
+            }
+        } finally {
+            $process.Dispose()
         }
         [IO.File]::ReadAllText($report)
     } finally { if ([IO.File]::Exists($report)) { [IO.File]::Delete($report) } }

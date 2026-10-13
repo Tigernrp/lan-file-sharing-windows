@@ -32,7 +32,7 @@ jobs:
         run: ./tests/Run-Tests.ps1 -TimeoutSeconds 180
 
       - name: Build and verify development installer
-        shell: pwsh
+        shell: powershell
         run: |
           ./installer/Build-Release.ps1 -DevelopmentUnsigned -Version 3.81
           ./installer/Build-Release.ps1 -VerifyOnly -Version 3.81 -InstallerPath ./artifacts/development-unsigned/LanFileSharing-Setup-v3.81-UNSIGNED-DEVELOPMENT.exe
