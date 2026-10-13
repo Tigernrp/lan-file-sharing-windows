@@ -8,14 +8,6 @@ Describe 'Large host operations and independent status reads' {
    (Get-LanNtfsAccess -Path $p).GetSecurityDescriptorSddlForm('Access')|Should Be $expected
   }
  }
- It 'reads share lists locally and asks the privileged broker for protected NetBird status' {
-  Mock Invoke-LanHostBrokerExchange {[pscustomobject]@{Available=$true;Result=[pscustomobject]@{ConnectionState='Connected'}}}
-  Mock Get-LanPublicShares { [pscustomobject]@{Id='real';Name='Lessons';Status='Running'} }
-  Mock Read-LanState { [pscustomobject]@{OnlineSettings=[pscustomobject]@{Enabled=$false;AllowedPeers=@()}} }
-  (Invoke-LanHostPreferredExchange -Action List -Payload @{} -HelperPath 'unused').Name|Should Be 'Lessons'
-  (Invoke-LanHostPreferredExchange -Action OnlineStatus -Payload @{} -HelperPath 'unused').ConnectionState|Should Be 'Connected'
-  Assert-MockCalled Invoke-LanHostBrokerExchange -Times 1 -Exactly -Scope It -ParameterFilter {$Action -eq 'OnlineStatus'}
- }
  It 'waits for accepted work longer than its connection budget without resending Create' {
   $name='LanLarge-'+[guid]::NewGuid().ToString('N')
   $server=[IO.Pipes.NamedPipeServerStream]::new($name,[IO.Pipes.PipeDirection]::InOut,1,[IO.Pipes.PipeTransmissionMode]::Byte,[IO.Pipes.PipeOptions]::Asynchronous)
@@ -42,14 +34,13 @@ Describe 'Large host operations and independent status reads' {
   }finally{$f.Dispose()}
  }
  It 'shows a late Running share automatically without a Refresh click' {
-  $script:lateStatePath=Join-Path $TestDrive 'late-state.json'
-  Mock Get-LanHostStatePath {$script:lateStatePath}
-  Write-LanState $script:lateStatePath (New-LanEmptyState)
+  $lateStatePath=Join-Path $TestDrive 'late-state.json'
+  Write-LanState $lateStatePath (New-LanEmptyState)
   $f=New-LanHostForm -UseBridge:$true
   try{
-   $u=$f.Tag;$u.PreferencePath=Join-Path $TestDrive 'late-ui.json';$f.Show();$u.Name.Text='Lessons';$u.Status.Text='Timed out'
+   $u=$f.Tag;$u.StatePath=$lateStatePath;$u.BridgeAdapter=@{HelperPath='unused';Exchange={param($action,$payload,$helperPath) @()}};$u.LastHostPoll=[DateTime]::MinValue;$u.PreferencePath=Join-Path $TestDrive 'late-ui.json';$f.Show();$u.Name.Text='Lessons';$u.Status.Text='Timed out'
    $state=New-LanEmptyState;$state.Shares=@([pscustomobject]@{Id='late';Name='Lessons';SourcePath='F:\Data';Mode='Read';AuthMode='Protected';Status='Running';NtfsPolicy='Managed'})
-   Write-LanState $script:lateStatePath $state
+   Write-LanState $lateStatePath $state
    $deadline=[DateTime]::UtcNow.AddSeconds(6)
    while($u.ShareList.Items.Count -eq 0 -and [DateTime]::UtcNow -lt $deadline){[Windows.Forms.Application]::DoEvents();Start-Sleep -Milliseconds 50}
    $u.ShareList.Items.Count|Should Be 1
@@ -57,18 +48,20 @@ Describe 'Large host operations and independent status reads' {
   }finally{$f.Dispose()}
  }
  It 'reenables all tools after tracking a late successful Create' {
-  $script:lateStatePath=Join-Path $TestDrive 'late-tracked-state.json'
-  Mock Get-LanHostStatePath {$script:lateStatePath}
-  Write-LanState $script:lateStatePath (New-LanEmptyState)
+  $lateStatePath=Join-Path $TestDrive 'late-tracked-state.json'
+  Write-LanState $lateStatePath (New-LanEmptyState)
   $f=New-LanHostForm -UseBridge:$true
   try{
-   $u=$f.Tag;$u.PreferencePath=Join-Path $TestDrive 'tracked-ui.json';$f.Show();$u.Name.Text='Lessons'
+   $u=$f.Tag;$u.StatePath=$lateStatePath;$u.BridgeAdapter=@{HelperPath='unused';Exchange={param($action,$payload,$helperPath) @()}};$u.LastHostPoll=[DateTime]::MinValue;$u.PreferencePath=Join-Path $TestDrive 'tracked-ui.json';$f.Show();$u.Name.Text='Lessons'
    $u.JobMode='Create';$u.PendingHostRequest=@{Name='Lessons';Path='F:\Data';Mode='Read';AuthMode='Protected'};$u.PreviousHostIds=@();$u.AwaitingHostOutcome=$true
    foreach($b in $u.HostToolButtons){$b.Enabled=$false};$u.Create.Enabled=$false;$u.Stop.Enabled=$false
    $state=New-LanEmptyState;$state.Shares=@([pscustomobject]@{Id='tracked';Name='Lessons';SourcePath='F:\Data';Mode='Read';AuthMode='Protected';Status='Running';NtfsPolicy='Managed'})
-   Write-LanState $script:lateStatePath $state
-   $deadline=[DateTime]::UtcNow.AddSeconds(6)
-   while($u.AwaitingHostOutcome -and [DateTime]::UtcNow -lt $deadline){[Windows.Forms.Application]::DoEvents();Start-Sleep -Milliseconds 50}
+   Write-LanState $lateStatePath $state
+   [IO.File]::Exists($u.StatePath)|Should Be $true
+   (Resolve-LanHostOperationOutcome $u (Read-LanState $u.StatePath)).State|Should Be 'Running'
+   $u.LastHostPoll=[DateTime]::MinValue
+   $method=[Windows.Forms.Timer].GetMethod('OnTick',[Reflection.BindingFlags]'Instance,NonPublic')
+   $method.Invoke($u.OperationTimer,@([EventArgs]::Empty))
    $u.AwaitingHostOutcome|Should Be $false
    foreach($b in $u.HostToolButtons){$b.Enabled|Should Be $true}
    $u.Create.Enabled|Should Be $true
@@ -109,5 +102,13 @@ Describe 'Large host operations and independent status reads' {
   $u=@{JobMode='Create';PendingHostRequest=@{Name='Lessons';Path='F:\Data';Mode='Read';AuthMode='Protected'};PreviousHostIds=@();PreviousJournalIds=@('earlier')}
   $state=[pscustomobject]@{Shares=@([pscustomobject]@{Id='earlier';Name='Lessons';SourcePath='F:\Data';Mode='Read';AuthMode='Protected';Status='Running'});Journal=@()}
   (Resolve-LanHostOperationOutcome $u $state).State|Should Be 'Failed'
+ }
+ It 'reads share lists locally and asks the privileged broker for protected NetBird status' {
+  Mock Invoke-LanHostBrokerExchange {[pscustomobject]@{Available=$true;Result=[pscustomobject]@{ConnectionState='Connected'}}}
+  Mock Get-LanPublicShares { [pscustomobject]@{Id='real';Name='Lessons';Status='Running'} }
+  Mock Read-LanState { [pscustomobject]@{OnlineSettings=[pscustomobject]@{Enabled=$false;AllowedPeers=@()}} }
+  (Invoke-LanHostPreferredExchange -Action List -Payload @{} -HelperPath 'unused').Name|Should Be 'Lessons'
+  (Invoke-LanHostPreferredExchange -Action OnlineStatus -Payload @{} -HelperPath 'unused').ConnectionState|Should Be 'Connected'
+  Assert-MockCalled Invoke-LanHostBrokerExchange -Times 1 -Exactly -Scope It -ParameterFilter {$Action -eq 'OnlineStatus'}
  }
 }

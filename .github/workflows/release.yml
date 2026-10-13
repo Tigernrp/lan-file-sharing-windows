@@ -48,11 +48,19 @@ jobs:
           "value=$version" >> $env:GITHUB_OUTPUT
           Write-Host 'Required SignPath settings are present.'
 
-      - name: Validate source and tests
+      - name: Validate public source and encoding
         shell: pwsh
         run: |
           ./tools/Test-PublicRepository.ps1 -Version '${{ steps.version.outputs.value }}'
           ./tests/Check-Encoding.ps1
+
+      - name: Install pinned Pester
+        shell: powershell
+        run: Install-Module Pester -RequiredVersion 4.10.1 -Force -Scope CurrentUser -SkipPublisherCheck
+
+      - name: Run portable test suite
+        shell: powershell
+        run: |
           ./tests/Run-Tests.ps1 -TimeoutSeconds 180
 
       - name: Build unsigned payload for SignPath

@@ -119,17 +119,18 @@ Describe 'Remembered sharing UI' {
     }
     It 'does not run broad host repair for a stopped UNC on a timer tick' {
         Mock Get-LanUserStartupSettings {[pscustomobject]@{AutoReconnect=$true;StartWithHost=$false;StartMinimized=$false;ShowAfterSeconds=15}}
-        $script:broadRepairCalls=0;$script:watchRepairCalls=0
-        Mock Repair-LanMonitoredMappings {$script:watchRepairCalls++;[pscustomobject]@{Connected=@();Waiting=@()}}
-        Mock Repair-LanClientConnection {$script:broadRepairCalls++;[pscustomobject]@{Connected=@();Message='broad'}}
         $f=New-LanClientForm -WireEvents:$true
         try{
             $u=$f.Tag;$u.ReconnectTimer.Stop();$u.Adapter=@{StatePath=(Join-Path $TestDrive 'stopped.json');SkipLivenessCheck=$true};$u.PreferencePath=Join-Path $TestDrive 'stopped-ui.json'
             Write-LanClientMappings $u.Adapter.StatePath @([pscustomobject]@{Letter='';ConnectionKind='Unc';Path='\\HOST\Saved';Unc='\\HOST\Saved';AuthMode='WindowsCurrent';Watching=$false})
             $f.Show()
+            $before=[int]$u.ReconnectChecks
             $method=[Windows.Forms.Timer].GetMethod('OnTick',[Reflection.BindingFlags]'Instance,NonPublic')
             $method.Invoke($u.ReconnectTimer,@([EventArgs]::Empty))
-            $script:watchRepairCalls|Should Be 1;$script:broadRepairCalls|Should Be 0
+            $u.ReconnectChecks|Should Be ($before+1)
+            $saved=@(Read-LanClientMappings $u.Adapter.StatePath)
+            $saved.Count|Should Be 1
+            (Test-LanMappingWatched $saved[0])|Should Be $false
             $u.Status.Text|Should Not Match 'not recognized'
         }finally{$f.Dispose()}
     }

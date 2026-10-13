@@ -1020,6 +1020,9 @@ try {
     }.GetNewClosure()
     $timer = New-Object Windows.Forms.Timer
     $timer.Interval=500
+    # Keep the operation timer reachable through the form state. This makes lifecycle diagnostics and
+    # deterministic tests possible without searching private WinForms event fields.
+    $ui.OperationTimer=$timer
     $readHostState=${function:Read-LanState}
     $publicShares=${function:Get-LanPublicShares}
     $resolveOutcome=${function:Resolve-LanHostOperationOutcome}

@@ -200,22 +200,7 @@ Describe 'LAN client mapping' {
         # away when the user unmaps the last drive that used that host, or a password stays behind.
         $script:written = New-Object System.Collections.ArrayList
         $script:removed = New-Object System.Collections.ArrayList
-        $realSet = ${function:Set-LanWindowsCredential}
-        $realRemove = ${function:Remove-LanWindowsCredential}
-        try {
-            # The native writer is replaced: it touches the machine's credential vault, which a test must
-            # not do. The target name it builds is what is checked.
-            Set-Item -Path Function:Set-LanWindowsCredential -Value {
-                param($HostName,$UserName,$Password)
-                [void]$script:written.Add("$HostName|$UserName|$Password")
-                return $true
-            }
-            Set-Item -Path Function:Remove-LanWindowsCredential -Value {
-                param($HostName)
-                [void]$script:removed.Add($HostName)
-                return $true
-            }
-            $path = Join-Path $TestDrive 'vault.json'
+        $path = Join-Path $TestDrive 'vault.json'
             $script:adapter = @{
                 StatePath=$path
                 CredentialPath=(Join-Path $TestDrive 'vault-secrets.json')
@@ -225,6 +210,16 @@ Describe 'LAN client mapping' {
                 GetMapping = { param($local) $null }
                 GetSession = { param($unc) 'HOST\LFS_abc' }
                 LaunchExplorer = { param($path) }
+                SetWindowsCredential = {
+                    param($HostName,$UserName,$Password)
+                    [void]$script:written.Add("$HostName|$UserName|$Password")
+                    return $true
+                }
+                RemoveWindowsCredential = {
+                    param($HostName)
+                    [void]$script:removed.Add($HostName)
+                    return $true
+                }
             }
             $script:adapter.GetRememberedCredential = { param($h) $null }
             Add-LanClientMap -Unc '\\HOST\share' -Letter 'P' -Persistent $true -AuthMode Protected `
@@ -233,10 +228,6 @@ Describe 'LAN client mapping' {
 
             Remove-LanClientMap -Letter 'P' -ExpectedUnc '\\HOST\share' -Adapter $script:adapter | Out-Null
             (@($script:removed) -join ';') | Should Be 'HOST'
-        } finally {
-            Set-Item -Path Function:Set-LanWindowsCredential -Value $realSet
-            Set-Item -Path Function:Remove-LanWindowsCredential -Value $realRemove
-        }
     }
     It 'reconnects saved mappings and leaves an existing connection alone' {
         # Windows restores a persistent mapping only when the sharing machine is reachable at logon, so a

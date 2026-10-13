@@ -1437,7 +1437,10 @@ function Remove-LanClientMap {
         try {
             $serverName = ([string]$entry.Unc).Substring(2).Split('\')[0]
             $stillUsed = @($remaining | Where-Object { ([string]$_.Unc).Substring(2).Split('\')[0] -ieq $serverName }).Count -gt 0
-            if (-not $stillUsed) { Remove-LanWindowsCredential -HostName $serverName | Out-Null }
+            if (-not $stillUsed) {
+                if ($Adapter.RemoveWindowsCredential) { & $Adapter.RemoveWindowsCredential $serverName | Out-Null }
+                else { Remove-LanWindowsCredential -HostName $serverName | Out-Null }
+            }
         } catch { }
     }
     if (-not $SkipGuestRestore -and $entry.AuthMode -eq 'Guest' -and @($remaining | Where-Object { $_.AuthMode -eq 'Guest' }).Count -eq 0) {

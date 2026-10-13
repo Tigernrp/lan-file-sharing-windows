@@ -17,6 +17,8 @@ Describe 'GitHub and SignPath workflow policy' {
         $ci | Should Match 'Test-PublicRepository\.ps1'
         $ci | Should Match 'Check-Encoding\.ps1'
         $ci | Should Match 'Run-Tests\.ps1'
+        $ci | Should Match 'Install-Module\s+Pester\s+-RequiredVersion\s+4\.10\.1'
+        (Get-Content -LiteralPath (Join-Path $repoRoot 'tests\Run-Tests.ps1') -Raw) | Should Match 'Version\.Major\s+-eq\s+4'
         $ci | Should Not Match 'SIGNPATH_API_TOKEN|secrets\.'
         $ci | Should Not Match 'upload-artifact[^\r\n]*\.exe'
     }
@@ -25,6 +27,7 @@ Describe 'GitHub and SignPath workflow policy' {
         Test-Path -LiteralPath $releasePath | Should Be $true
         $release = Get-Content -LiteralPath $releasePath -Raw
         $release | Should Match 'runs-on:\s*windows-latest'
+        $release | Should Match 'Install-Module\s+Pester\s+-RequiredVersion\s+4\.10\.1'
         $release | Should Match '\^v\[0-9\]\+\\\.\[0-9\]\+\$'
         foreach ($name in @(
             'SIGNPATH_API_TOKEN',

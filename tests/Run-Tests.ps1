@@ -5,6 +5,14 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 Set-Location (Split-Path -Parent $PSScriptRoot)
+$pesterV4 = Get-Module -ListAvailable Pester |
+    Where-Object { $_.Version.Major -eq 4 } |
+    Sort-Object Version -Descending |
+    Select-Object -First 1
+if ($null -eq $pesterV4) {
+    throw 'Pester 4.x is required. Install Pester 4.10.1 before running tests.'
+}
+Import-Module -Name $pesterV4.Path -Force
 if (-not [string]::IsNullOrWhiteSpace($Given)) {
     $paths = @($Given.Split(',') | Where-Object { $_.Trim() } | ForEach-Object { Join-Path $PSScriptRoot $_.Trim() })
 } else {
