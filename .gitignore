@@ -1,0 +1,12 @@
+.superpowers/sdd/
+/open-source/
+/artifacts/
+/release/
+*.exe
+*.dll
+*.msi
+*.zip
+*.rar
+*.7z
+*.pdb
+*.log

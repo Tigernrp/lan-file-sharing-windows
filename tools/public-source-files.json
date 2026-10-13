@@ -1,0 +1,98 @@
+{
+  "Files": [
+    ".gitignore",
+    "CODE_SIGNING_POLICY.md",
+    "CONTRIBUTING.md",
+    "Diagnose-LanClient.ps1",
+    "HostHelper.ps1",
+    "HostWorker.ps1",
+    "Install-LanClient.ps1",
+    "Install-LanShare.ps1",
+    "Installer-Action.ps1",
+    "LanShare.ps1",
+    "LICENSE",
+    "OnlineSetup.ps1",
+    "OnlineSignIn.ps1",
+    "QUICKSTART-TH.md",
+    "PRIVACY.md",
+    "README.md",
+    "Reset-LanShare.ps1",
+    "Setup-LanHost.ps1",
+    "SECURITY.md",
+    "THIRD_PARTY_NOTICES.md",
+    "Uninstall-LanShare.ps1",
+    "Update-LanShare.ps1",
+    "docs/ONLINE-TH.md",
+    "tests/Check-Encoding.ps1",
+    "tests/Manual-Lan-Checklist.md",
+    "tests/Run-Tests.ps1",
+    "tools/Export-PublicSource.ps1",
+    "tools/PublicSource.psm1",
+    "tools/Test-PublicRepository.ps1",
+    "tools/public-source-files.json"
+  ],
+  "Trees": [
+    { "Path": "src", "Include": ["*.ps1"] },
+    { "Path": "installer", "Include": ["*.ps1", "*.cs"] },
+    { "Path": "icon", "Include": ["*.ico", "*.png"] },
+    { "Path": "tests", "Include": ["*.Tests.ps1"] }
+  ],
+  "DeniedDirectories": [
+    ".git",
+    ".superpowers",
+    "artifacts",
+    "release",
+    "open-source",
+    "LanFileSharing-HostClient-2026-09-27",
+    "LanFileSharing-HostClient-2026-09-27-v2"
+  ],
+  "DeniedFiles": [
+    "handoff.md"
+  ],
+  "DeniedExtensions": [
+    ".exe",
+    ".dll",
+    ".msi",
+    ".zip",
+    ".rar",
+    ".7z",
+    ".pdb",
+    ".log"
+  ],
+  "SensitivePatterns": [
+    {
+      "Id": "netbird-setup-key",
+      "Pattern": "(?im)setup[_ -]?key\\s*[:=]\\s*['\\\"]?[a-z0-9_-]{16,}"
+    },
+    {
+      "Id": "authorization-bearer-token",
+      "Pattern": "(?im)authorization\\s*[:=]\\s*['\\\"]?bearer\\s+[a-z0-9._-]{20,}"
+    },
+    {
+      "Id": "github-token",
+      "Pattern": "(?i)gh[pousr]_[a-z0-9]{20,}"
+    },
+    {
+      "Id": "private-key-material",
+      "Pattern": "-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----"
+    },
+    {
+      "Id": "password-value",
+      "Pattern": "(?im)password\\s*[:=]\\s*(?:['\\\"](?!(?:example|placeholder|test|dummy|<))[^'\\\"\\r\\n]{8,}['\\\"]|(?!(?:\\$|@|\\(|\\{|\\[|example|placeholder|test|dummy|<))(?=[^\\s\\r\\n]{8,})(?=[^\\s\\r\\n]*\\d)[a-z0-9!#%&*+,.?_-]+)",
+      "ExcludePaths": ["tests/*"]
+    },
+    {
+      "Id": "thai-password-value",
+      "Pattern": "(?im)\\u0e23\\u0e2b\\u0e31\\u0e2a\\u0e1c\\u0e48\\u0e32\\u0e19\\s*[:=]\\s*(?:['\\\"](?!(?:example|placeholder|test|dummy|<))[^'\\\"\\r\\n]{8,}['\\\"]|(?!(?:\\$|@|\\(|\\{|\\[|example|placeholder|test|dummy|<))(?=[^\\s\\r\\n]{8,})(?=[^\\s\\r\\n]*\\d)[a-z0-9!#%&*+,.?_-]+)",
+      "ExcludePaths": ["tests/*"]
+    },
+    {
+      "Id": "local-user-profile",
+      "Pattern": "(?i)c:\\\\users\\\\\\x4b\\x73(?:\\\\|[\\s'\\\"])"
+    },
+    {
+      "Id": "known-private-machine-name",
+      "Pattern": "(?i)\\x4b\\x52\\x55\\x53\\x55\\x45\\x41\\x4c\\x41\\x50\\x54\\x4f\\x50"
+    }
+  ]
+}
