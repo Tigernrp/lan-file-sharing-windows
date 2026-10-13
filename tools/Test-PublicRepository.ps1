@@ -13,21 +13,23 @@ Import-Module $modulePath -Force
 
 $errors = New-Object 'System.Collections.Generic.List[string]'
 $actualFiles = New-Object 'System.Collections.Generic.List[string]'
-$queue = New-Object 'System.Collections.Generic.Queue[string]'
-$queue.Enqueue($rootFull)
-while ($queue.Count -gt 0) {
-    $directory = $queue.Dequeue()
-    foreach ($entry in (Get-ChildItem -LiteralPath $directory -Force)) {
-        if (($entry.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
-            $errors.Add(('reparse-point:{0}' -f $entry.Name))
-            continue
+if ([IO.Directory]::Exists((Join-Path $rootFull '.git'))) {
+    $tracked = @(& git -C $rootFull ls-files --cached --others --exclude-standard)
+    if ($LASTEXITCODE -ne 0) { throw 'Unable to read the public Git file inventory.' }
+    foreach ($relative in $tracked) { if (-not [string]::IsNullOrWhiteSpace($relative)) { $actualFiles.Add($relative.Replace('\', '/')) } }
+} else {
+    $queue = New-Object 'System.Collections.Generic.Queue[string]'
+    $queue.Enqueue($rootFull)
+    while ($queue.Count -gt 0) {
+        $directory = $queue.Dequeue()
+        foreach ($entry in (Get-ChildItem -LiteralPath $directory -Force)) {
+            if (($entry.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+                $errors.Add(('reparse-point:{0}' -f $entry.Name))
+                continue
+            }
+            if ($entry.PSIsContainer) { $queue.Enqueue($entry.FullName); continue }
+            $actualFiles.Add($entry.FullName.Substring($rootFull.Length + 1).Replace('\', '/'))
         }
-        if ($entry.PSIsContainer) {
-            if ($entry.Name -eq '.git') { continue }
-            $queue.Enqueue($entry.FullName)
-            continue
-        }
-        $actualFiles.Add($entry.FullName.Substring($rootFull.Length + 1).Replace('\', '/'))
     }
 }
 

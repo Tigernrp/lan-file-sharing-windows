@@ -33,7 +33,7 @@
   ],
   "Trees": [
     { "Path": "src", "Include": ["*.ps1"] },
-    { "Path": "installer", "Include": ["*.ps1", "*.cs"] },
+    { "Path": "installer", "Include": ["*.ps1", "*.psm1", "*.cs"] },
     { "Path": "icon", "Include": ["*.ico", "*.png"] },
     { "Path": "tests", "Include": ["*.Tests.ps1"] }
   ],

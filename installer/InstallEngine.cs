@@ -9,6 +9,7 @@ using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Security.AccessControl;
 using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
 using System.Security.Principal;
 using System.Text;
 using System.Threading;
@@ -62,6 +63,16 @@ internal static class InstallEngine
             }
             if (args.Length == 2 && args[0] == "--inspect") {
                 File.WriteAllText(args[1], "Default=" + DefaultInstallRoot + "\r\nExisting=" + (DetectExistingInstallRoot() ?? ""), Encoding.UTF8);
+                return 0;
+            }
+            if (args.Length == 2 && args[0] == "--audit") {
+                if (!Path.IsPathRooted(args[1])) throw new ArgumentException("Audit report path must be absolute.");
+                string report = Path.GetFullPath(args[1]);
+                string reportDirectory = Path.GetDirectoryName(report);
+                if (string.IsNullOrEmpty(reportDirectory) || !Directory.Exists(reportDirectory)) throw new DirectoryNotFoundException("Audit report directory does not exist.");
+                string stage = CreateStage(false);
+                try { VerifyAndExtract(stage); WriteAuditReport(stage, report); }
+                finally { CleanupStage(stage, false); }
                 return 0;
             }
             if (args.Length >= 5 && args[0] == "--elevated")
@@ -457,6 +468,58 @@ internal static class InstallEngine
                 return count;
             }
         }
+    }
+
+    private static string JsonEscape(string value)
+    {
+        if (value == null) return "";
+        var output = new StringBuilder();
+        foreach (char character in value) {
+            switch (character) {
+                case '\\': output.Append("\\\\"); break;
+                case '"': output.Append("\\\""); break;
+                case '\r': output.Append("\\r"); break;
+                case '\n': output.Append("\\n"); break;
+                case '\t': output.Append("\\t"); break;
+                default:
+                    if (character < 32) output.Append("\\u" + ((int)character).ToString("x4"));
+                    else output.Append(character);
+                    break;
+            }
+        }
+        return output.ToString();
+    }
+
+    private static void WriteAuditReport(string stage, string reportPath)
+    {
+        string root = Path.GetFullPath(stage).TrimEnd('\\') + "\\";
+        string[] files = Directory.GetFiles(stage, "*", SearchOption.AllDirectories);
+        Array.Sort(files, StringComparer.OrdinalIgnoreCase);
+        var json = new StringBuilder();
+        json.Append("{\n  \"version\": \"").Append(JsonEscape(Version)).Append("\",\n  \"files\": [\n");
+        for (int index = 0; index < files.Length; index++) {
+            string file = files[index];
+            string relative = Path.GetFullPath(file).Substring(root.Length).Replace('\\', '/');
+            string hash;
+            using (var input = File.OpenRead(file))
+            using (var sha = SHA256.Create()) hash = BitConverter.ToString(sha.ComputeHash(input)).Replace("-", "").ToLowerInvariant();
+            bool signed = false;
+            string signer = "";
+            if (file.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) || file.EndsWith(".ps1", StringComparison.OrdinalIgnoreCase) || file.EndsWith(".psm1", StringComparison.OrdinalIgnoreCase)) {
+                try {
+                    var certificate = new X509Certificate2(X509Certificate.CreateFromSignedFile(file));
+                    signed = true;
+                    signer = certificate.Subject;
+                    certificate.Dispose();
+                } catch (CryptographicException) { }
+            }
+            json.Append("    {\"path\":\"").Append(JsonEscape(relative)).Append("\",\"sha256\":\"").Append(hash)
+                .Append("\",\"signed\":").Append(signed ? "true" : "false").Append(",\"signer\":\"").Append(JsonEscape(signer)).Append("\"}");
+            if (index + 1 < files.Length) json.Append(',');
+            json.Append('\n');
+        }
+        json.Append("  ]\n}\n");
+        File.WriteAllText(reportPath, json.ToString(), new UTF8Encoding(false));
     }
 
     private static void ValidateRelativeName(string name)

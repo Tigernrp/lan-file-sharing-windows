@@ -1,5 +1,11 @@
 ﻿Add-Type -AssemblyName System.IO.Compression
 Describe 'single-file Windows setup' {
+    BeforeAll {
+        $script:setup = Join-Path $PSScriptRoot '../artifacts/development-unsigned/LanFileSharing-Setup-v3.81-UNSIGNED-DEVELOPMENT.exe'
+        if (-not [IO.File]::Exists($script:setup)) {
+            & (Join-Path $PSScriptRoot '../installer/Build-Release.ps1') -DevelopmentUnsigned -Version '3.81' | Out-Null
+        }
+    }
     It 'has an installer builder, GUI, elevated engine and normal-user launcher source' {
         foreach ($name in @('Build-Release.ps1','SetupForm.cs','InstallEngine.cs','Launcher.cs')) {
             [IO.File]::Exists((Join-Path $PSScriptRoot "../installer/$name")) | Should Be $true
@@ -17,7 +23,7 @@ Describe 'single-file Windows setup' {
     }
 
     It 'builds a standalone setup executable with an embedded verified payload' {
-        $setup=Join-Path $PSScriptRoot '../release/LanFileSharing-Setup-v3.81.exe'
+        $setup=$script:setup
         [IO.File]::Exists($setup) | Should Be $true
         if (Test-Path -LiteralPath $setup) {
             $bytes=[IO.File]::ReadAllBytes($setup)
@@ -28,7 +34,7 @@ Describe 'single-file Windows setup' {
     }
 
     It 'verifies every embedded payload hash without installing or requesting UAC' {
-        $setup=Join-Path $PSScriptRoot '../release/LanFileSharing-Setup-v3.81.exe'
+        $setup=$script:setup
         $report=Join-Path $TestDrive 'verification.txt'
         $process=Start-Process -FilePath $setup -ArgumentList ('--verify "'+$report+'"') -Wait -PassThru -WindowStyle Hidden
         $process.ExitCode | Should Be 0
@@ -47,7 +53,7 @@ Describe 'single-file Windows setup' {
     }
 
     It 'reports the requested 64-bit or 32-bit default without changing the computer' {
-        $setup=Join-Path $PSScriptRoot '../release/LanFileSharing-Setup-v3.81.exe'
+        $setup=$script:setup
         $report=Join-Path $TestDrive 'inspect.txt'
         $process=Start-Process -FilePath $setup -ArgumentList ('--inspect "'+$report+'"') -Wait -PassThru -WindowStyle Hidden
         $process.ExitCode | Should Be 0
@@ -56,7 +62,7 @@ Describe 'single-file Windows setup' {
     }
 
     It 'contains the uninstall and Windows Installed Apps registration paths' {
-        $setup=Join-Path $PSScriptRoot '../release/LanFileSharing-Setup-v3.81.exe'
+        $setup=$script:setup
         $assembly=[Reflection.Assembly]::LoadFrom($setup)
         $engine=$assembly.GetType('InstallEngine',$true)
         $flags=[Reflection.BindingFlags]'Static, NonPublic'
