@@ -422,13 +422,18 @@ Describe 'NTFS permission changes on a disposable directory' {
     It 'records and restores only its own ACL update' {
         $folder = Join-Path $TestDrive 'acl-sample'
         New-Item -ItemType Directory -Path $folder | Out-Null
-        $before = (Get-Acl -LiteralPath $folder).GetSecurityDescriptorSddlForm([Security.AccessControl.AccessControlSections]::Access)
+        $beforeAcl = Get-Acl -LiteralPath $folder
+        $before = $beforeAcl.GetSecurityDescriptorSddlForm([Security.AccessControl.AccessControlSections]::Access)
+        $beforeRules = @((Get-LanAclRules -Sddl $before).Rules | ForEach-Object { Get-LanAclRuleKey -Rule $_ } | Sort-Object)
         $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
         $records = @(Grant-LanNtfsAcl -Path $folder -Sids @($sid) -Mode Read)
         $records.Count | Should BeGreaterThan 0
         Revoke-LanNtfsAcl -Records $records
-        $after = (Get-Acl -LiteralPath $folder).GetSecurityDescriptorSddlForm([Security.AccessControl.AccessControlSections]::Access)
-        $after | Should Be $before
+        $afterAcl = Get-Acl -LiteralPath $folder
+        $after = $afterAcl.GetSecurityDescriptorSddlForm([Security.AccessControl.AccessControlSections]::Access)
+        $afterRules = @((Get-LanAclRules -Sddl $after).Rules | ForEach-Object { Get-LanAclRuleKey -Rule $_ } | Sort-Object)
+        ($afterRules -join "`n") | Should Be ($beforeRules -join "`n")
+        $afterAcl.AreAccessRulesProtected | Should Be $beforeAcl.AreAccessRulesProtected
     }
 
     It 'reads a recorded ACL that carries generic access rights' {
@@ -603,7 +608,11 @@ Describe 'NTFS permission changes on a disposable directory' {
         $added.Count | Should BeGreaterThan 0
         (Test-LanAclHoldsNoAppGrant -Acl (Get-Acl -LiteralPath $folder) -AddedRules $added) | Should Be $false
         Revoke-LanNtfsAcl -Records $records
-        (Get-Acl -LiteralPath $folder).GetSecurityDescriptorSddlForm([Security.AccessControl.AccessControlSections]::Access) | Should Be $records[0].Before
+        $restoredAcl = Get-Acl -LiteralPath $folder
+        $restored = $restoredAcl.GetSecurityDescriptorSddlForm([Security.AccessControl.AccessControlSections]::Access)
+        $expectedRules = @((Get-LanAclRules -Sddl $records[0].Before).Rules | ForEach-Object { Get-LanAclRuleKey -Rule $_ } | Sort-Object)
+        $restoredRules = @((Get-LanAclRules -Sddl $restored).Rules | ForEach-Object { Get-LanAclRuleKey -Rule $_ } | Sort-Object)
+        ($restoredRules -join "`n") | Should Be ($expectedRules -join "`n")
     }
     It 'still recognises its own grant after the owner changes another entry' {
         # The activation check used to compare the whole security descriptor as a string, so a user

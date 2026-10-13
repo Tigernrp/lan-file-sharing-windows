@@ -509,7 +509,7 @@ Describe 'install entry points' {
         try {
             $env:ProgramFiles = Join-Path $TestDrive 'legacy-program-files'
             $env:ProgramData = Join-Path $TestDrive 'machine-data'
-            $customRoot = 'F:\Protected\LanFileSharing'
+            $customRoot = Join-Path $TestDrive 'Protected\LanFileSharing'
             $stateRoot = Join-Path $env:ProgramData 'LanFileSharing'
             $locationAdapter = @{ReadRecord={ $customRoot };WriteRecord={};DeleteRecord={}}
             { New-LanStartupAdapter -SourceRoot (Split-Path -Parent $PSScriptRoot) -InstallRoot (Join-Path $env:ProgramFiles 'LanFileSharing') -StateRoot $stateRoot -LocationAdapter $locationAdapter } | Should Throw
@@ -531,7 +531,7 @@ Describe 'install entry points' {
             $script:allowOnBatteries=$false
             $script:keepOnBatteries=$false
             & $adapter.RegisterTask $customRoot $stateRoot 'SYSTEM' $true $true
-            $script:workerArgument | Should Match ([regex]::Escape('F:\Protected\LanFileSharing\HostWorker.ps1'))
+            $script:workerArgument | Should Match ([regex]::Escape((Join-Path $customRoot 'HostWorker.ps1')))
             $script:allowOnBatteries | Should Be $true
             $script:keepOnBatteries | Should Be $true
         } finally {
