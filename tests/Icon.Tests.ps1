@@ -51,6 +51,14 @@ function Get-TestTigerOrangePixels {
 }
 
 Describe 'Tiger Tech application icon' {
+    BeforeAll {
+        $root=Split-Path -Parent $PSScriptRoot
+        $buildDirectory=Join-Path $TestDrive 'icon-build'
+        Import-Module (Join-Path $root 'installer/ReleaseBuild.psm1') -Force
+        $payload=New-LanUnsignedPayload -SourceRoot $root -Version '3.81' -OutputDirectory $buildDirectory
+        $script:iconTestSetup=New-LanInstallerFromPayload -PayloadPath $payload -Version '3.81' -OutputDirectory $buildDirectory -RequireSignedPayload $false
+    }
+
     It 'uses an application taskbar identity and Tiger Tech relaunch icon' {
         $form=New-LanMainForm -WireEvents:$false
         try {
@@ -64,11 +72,11 @@ Describe 'Tiger Tech application icon' {
     It 'uses the supplied ICO in setup and installed launcher executables' {
         $root=Split-Path -Parent $PSScriptRoot
         $source=Join-Path $root 'icon/Tiger_Tech_Share_File.ico'
-        $setup=Join-Path $root 'release/LanFileSharing-Setup-v3.81.exe'
+        $setup=$script:iconTestSetup
         [IO.File]::Exists($source) | Should Be $true
         [IO.File]::Exists($setup) | Should Be $true
         if (-not [IO.File]::Exists($setup)) { return }
-        $assembly=[Reflection.Assembly]::LoadFrom($setup)
+        $assembly=[Reflection.Assembly]::Load([IO.File]::ReadAllBytes($setup))
         $payload=$assembly.GetManifestResourceStream('LanFileSharing.Payload.zip')
         try {
             $zip=New-Object IO.Compression.ZipArchive($payload,[IO.Compression.ZipArchiveMode]::Read)
@@ -117,10 +125,10 @@ Describe 'Tiger Tech application icon' {
 
     It 'embeds the supplied PNG for the setup window logo' {
         $root=Split-Path -Parent $PSScriptRoot
-        $setup=Join-Path $root 'release/LanFileSharing-Setup-v3.81.exe'
+        $setup=$script:iconTestSetup
         [IO.File]::Exists($setup) | Should Be $true
         if (-not [IO.File]::Exists($setup)) { return }
-        $assembly=[Reflection.Assembly]::LoadFrom($setup)
+        $assembly=[Reflection.Assembly]::Load([IO.File]::ReadAllBytes($setup))
         $stream=$assembly.GetManifestResourceStream('LanFileSharing.Brand.png')
         $stream | Should Not BeNullOrEmpty
         if (-not $stream) { return }

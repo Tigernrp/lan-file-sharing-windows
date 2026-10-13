@@ -18,6 +18,12 @@ No signing credential, private key, setup key, or API token is committed to the 
 - Signing is restricted to approved version tags or the protected release branch.
 - The pipeline stops if tests, provenance, metadata, signatures, timestamps, signer identity, inventory, embedded payload, or checksum verification fails.
 
+## Automated release behavior
+
+The release workflow gives each SignPath request a bounded 30-minute timeout and fails closed if signing is rejected, unavailable, cancelled, or incomplete. A cancellation or timeout cannot reach the publish job. The workflow may retain a short-lived private diagnostic artifact for maintainers, but it does not attach unsigned or partially signed files to a public release.
+
+A Draft Release is created only after the signed payload is embedded, the final installer is separately signed, and the final release gate validates the signer, timestamps, product metadata, embedded inventory, and hashes. Publishing the draft remains a deliberate maintainer action.
+
 ## Unsigned legacy release
 
 Version 3.81 is an unsigned legacy artifact published only to document the previously released application and support the SignPath Foundation application. It is not represented as Smart App Control-compatible. Users must not be told to disable Windows security controls.

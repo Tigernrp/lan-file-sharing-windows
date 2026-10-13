@@ -1,0 +1,184 @@
+name: Signed release
+
+on:
+  push:
+    tags:
+      - 'v*.*'
+
+permissions:
+  contents: read
+
+jobs:
+  build_sign_verify:
+    runs-on: windows-latest
+    timeout-minutes: 75
+    permissions:
+      contents: read
+      actions: read
+    env:
+      SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
+      SIGNPATH_ORGANIZATION_ID: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+      SIGNPATH_PROJECT_SLUG: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+      SIGNPATH_PAYLOAD_CONFIGURATION: ${{ vars.SIGNPATH_PAYLOAD_CONFIGURATION }}
+      SIGNPATH_INSTALLER_CONFIGURATION: ${{ vars.SIGNPATH_INSTALLER_CONFIGURATION }}
+    steps:
+      - name: Check out the tagged revision
+        uses: actions/checkout@v4
+
+      - name: Validate tag and required signing settings
+        id: version
+        shell: pwsh
+        run: |
+          if ($env:GITHUB_REF_NAME -notmatch '^v[0-9]+\.[0-9]+$') {
+            throw 'Release tags must have the exact form vMAJOR.MINOR.'
+          }
+          $required = @(
+            'SIGNPATH_API_TOKEN',
+            'SIGNPATH_ORGANIZATION_ID',
+            'SIGNPATH_PROJECT_SLUG',
+            'SIGNPATH_PAYLOAD_CONFIGURATION',
+            'SIGNPATH_INSTALLER_CONFIGURATION'
+          )
+          foreach ($name in $required) {
+            if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name))) {
+              throw "Required SignPath setting is missing: $name"
+            }
+          }
+          $version = $env:GITHUB_REF_NAME.Substring(1)
+          "value=$version" >> $env:GITHUB_OUTPUT
+          Write-Host 'Required SignPath settings are present.'
+
+      - name: Validate source and tests
+        shell: pwsh
+        run: |
+          ./tools/Test-PublicRepository.ps1 -Version '${{ steps.version.outputs.value }}'
+          ./tests/Check-Encoding.ps1
+          ./tests/Run-Tests.ps1 -TimeoutSeconds 180
+
+      - name: Build unsigned payload for SignPath
+        shell: pwsh
+        run: ./installer/Build-Payload.ps1 -Version '${{ steps.version.outputs.value }}' -OutputDirectory ./artifacts/unsigned-payload
+
+      - name: Upload unsigned payload privately
+        id: upload_unsigned_payload
+        uses: actions/upload-artifact@v4
+        with:
+          name: unsigned-payload-${{ github.run_id }}
+          path: artifacts/unsigned-payload/payload-signing-v${{ steps.version.outputs.value }}.zip
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Sign payload contents with SignPath
+        uses: signpath/github-action-submit-signing-request@v3
+        with:
+          api-token: ${{ env.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ env.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ env.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: release-signing
+          artifact-configuration-slug: ${{ env.SIGNPATH_PAYLOAD_CONFIGURATION }}
+          github-artifact-id: ${{ steps.upload_unsigned_payload.outputs.artifact-id }}
+          parameters: |
+            version: "${{ steps.version.outputs.value }}"
+          wait-for-completion: true
+          wait-for-completion-timeout-in-seconds: 1800
+          output-artifact-directory: artifacts/signed-payload
+
+      - name: Verify signed payload and build unsigned installer
+        shell: pwsh
+        run: |
+          $version = '${{ steps.version.outputs.value }}'
+          $payload = Join-Path $PWD "artifacts/signed-payload/payload-signing-v$version.zip"
+          Import-Module ./installer/ReleaseBuild.psm1 -Force
+          $result = Test-LanSignedPayload -PayloadPath $payload -Version $version -ExpectedSignerPattern '^CN=SignPath Foundation' -RequireTimestamp $true
+          if (-not $result.Passed) { throw ('Signed payload verification failed: ' + ($result.Findings -join ', ')) }
+          ./installer/Build-Installer.ps1 -PayloadPath $payload -Version $version -OutputDirectory ./artifacts/unsigned-installer -RequireSignedPayload -ExpectedSignerPattern '^CN=SignPath Foundation'
+
+      - name: Upload unsigned installer privately
+        id: upload_unsigned_installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: unsigned-installer-${{ github.run_id }}
+          path: artifacts/unsigned-installer/LanFileSharing-Setup-v${{ steps.version.outputs.value }}.exe
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Sign final installer with SignPath
+        uses: signpath/github-action-submit-signing-request@v3
+        with:
+          api-token: ${{ env.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ env.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ env.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: release-signing
+          artifact-configuration-slug: ${{ env.SIGNPATH_INSTALLER_CONFIGURATION }}
+          github-artifact-id: ${{ steps.upload_unsigned_installer.outputs.artifact-id }}
+          parameters: |
+            version: "${{ steps.version.outputs.value }}"
+          wait-for-completion: true
+          wait-for-completion-timeout-in-seconds: 1800
+          output-artifact-directory: artifacts/signed-installer
+
+      - name: Run final signed release gate and prepare public files
+        shell: pwsh
+        run: |
+          $version = '${{ steps.version.outputs.value }}'
+          $installer = Join-Path $PWD "artifacts/signed-installer/LanFileSharing-Setup-v$version.exe"
+          $release = Join-Path $PWD 'artifacts/signed-release'
+          New-Item -ItemType Directory -Path $release -Force | Out-Null
+          $report = Join-Path $release 'release-verification.json'
+          ./tools/Test-ReleaseArtifact.ps1 -InstallerPath $installer -Version $version -SignerPattern '^CN=SignPath Foundation' -RequireTimestamp -OutputPath $report
+          Copy-Item -LiteralPath $installer -Destination $release
+          $installerName = Split-Path -Leaf $installer
+          $hash = (Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash.ToLowerInvariant()
+          [IO.File]::WriteAllText((Join-Path $release "$installerName.sha256"), "$hash  $installerName`n", [Text.UTF8Encoding]::new($false))
+          ./tools/New-ReleaseSbom.ps1 -Root $PWD -Version $version -OutputPath (Join-Path $release "LanFileSharing-v$version.sbom.cdx.json")
+          $provenance = [ordered]@{
+            schemaVersion = 1
+            version = $version
+            sourceCommit = $env:GITHUB_SHA
+            sourceRef = $env:GITHUB_REF_NAME
+            builder = 'github-hosted/windows-latest'
+            signing = 'SignPath two-stage payload and installer signing'
+            installer = [ordered]@{ fileName = $installerName; sha256 = $hash }
+          }
+          [IO.File]::WriteAllText((Join-Path $release 'provenance.json'), ($provenance | ConvertTo-Json -Depth 5), [Text.UTF8Encoding]::new($false))
+
+      - name: Transfer signed release files privately
+        uses: actions/upload-artifact@v4
+        with:
+          name: signed-release
+          path: artifacts/signed-release/*
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Preserve private diagnostics after failure or cancellation
+        if: ${{ failure() || cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: private-diagnostics-${{ github.run_id }}
+          path: |
+            artifacts/verification/*.json
+            artifacts/signed-release/release-verification.json
+          if-no-files-found: ignore
+          retention-days: 1
+
+  publish:
+    needs: build_sign_verify
+    if: ${{ success() }}
+    runs-on: windows-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: Download verified signed release files
+        uses: actions/download-artifact@v4
+        with:
+          name: signed-release
+          path: signed-release
+
+      - name: Create draft GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$env:GITHUB_REF_NAME" --draft --verify-tag --title "LAN File Sharing $env:GITHUB_REF_NAME" --notes "Signed Windows release produced by the reviewed two-stage SignPath workflow." signed-release/*
+
